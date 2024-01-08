@@ -83,12 +83,7 @@ class Board:
         if not self.check_in_bounds(x,y) : return
 
         # set current tile
-        # TODO: make this a little more robust
         self._apply_autotile(tset,x,y,self.tiles[tset][0].mask)
-
-        #print(self.mask)
-        #print()
-        #return
 
         # update neighbors
         coords = tile.get_autotile_neighbors(x,y,self.dim)

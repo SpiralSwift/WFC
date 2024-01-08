@@ -24,7 +24,7 @@ class Board:
 
         self.board = np.ones(dim,dtype=int) * noneidx # array of indices of tiles in list
         self.mask = np.ones(dim,dtype=int) * nullidx # array of masks for tiles
-        self.img = np.zeros((dim[0]*tileDim,dim[1]*tileDim,4))
+        self.img = np.zeros((dim[0]*self.tileDim,dim[1]*self.tileDim,4))
         self.states = np.ones((dim[0],dim[1],self.stateDim),dtype=int) # boolean matrix of valid tiles ("states") at each position
 
     def collapse_states(self, states : np.ndarray, dx : int, dy : int, reftileidx : int = -1) -> np.ndarray:
@@ -152,7 +152,6 @@ class Board:
 
     def print_states(self) -> None:
          print(np.sum(self.states,2))
-
 
 
 if __name__ == "__main__":
