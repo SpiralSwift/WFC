@@ -31,6 +31,7 @@ class Board:
         self.emptyTile = np.zeros((self.tiledim,self.tiledim,4))
         self.emptyTile[:,:,3] = 1 # [0,0,0,1] -> black
 
+
     def _set_tile(self, x : int, y : int, tset : int, idx : int) -> None:
         '''
         Set tile at given location
@@ -52,6 +53,7 @@ class Board:
         y0 = y * self.tiledim
         y1 = y0 + self.tiledim
         self.img[x0:x1,y0:y1,:] = tileset.sprites[idx]
+
 
     def _remove_tile(self, x : int, y : int) -> None:
         '''
@@ -83,29 +85,56 @@ class Board:
         delta = np.abs(tileset.bitmasks - bitmask)
         delta = np.nansum(delta,axis=1)
 
-        # get valid tile
-        print(bitmask)
+        # cgoose random tile out of best matches
         minidx = np.where(delta == delta.min())[0] # list of all minima
-        if min(delta) > 0: # report imperfect matches
-            print(f'Imperfect match! Candidates: {bitmask}')
-            for i in minidx : print(f'   {tileset.bitmasks[i,:]} ({delta[i]})')
-
-        # choose a random tile
         idx = np.random.choice(minidx)
         self._set_tile(x,y,tset,idx)
+
+        # error reporting
+        if min(delta) > 0: # report imperfect matches
+            print(f'Imperfect match! Local State: {bitmask}')
+            for i in minidx : print(f'{delta[i]}: {tileset.bitmasks[i,:]}')
         
 
 
     def _get_enforced_bitmask(self, x : int, y : int) -> np.ndarray:
         '''
+        Get local bitmask using corresponding edges of bitmasks of neighbors (rather than their actual masks)
+        NaN -> no value enforced
+        NOTE: functionality is a bit squiffy if not using 3x3 bitmasks
+        '''
+        bitmask = np.full((self.bitdim,self.bitdim),np.NaN)
+        for xx, yy in self.get_adjacent(x,y):
+            xmask = xx - x + 1 # board to mask coordinates (x,y -> 1,1)
+            ymask = yy - y + 1
+
+            tset = self.tset[xx,yy]
+            state = self.tile[xx,yy]
+            if tset > NULLIDX:
+                bm = self.tilesets[tset].bitmasks[state].reshape((self.bitdim,self.bitdim)) # bitmask of neighbor
+
+                # copy corresponding edge
+                # NOTE: this simply overwrites corners, so any case where two neighbors disagree on a corner will not de detected
+                if xmask == 0 : bitmask[0,:] = bm[2,:] # would need to be rewritten to accomodate nxn bitmasks
+                elif xmask == 2 : bitmask[2,:] = bm[0,:]
+                elif ymask == 0 : bitmask[:,0] = bm[:,2]
+                elif ymask == 2: bitmask[:,2] = bm[:,0]
+        bitmask = bitmask.reshape((bitmask.size,)) # convert to 1D
+        return bitmask
+    
+
+    def _get_enforced_bitmask_legacy(self, x : int, y : int) -> np.ndarray:
+        '''
         Get local bitmask based corresponding bits in bitmasks of neighbors (rather than their actual masks)
         NaN -> no value enforced
+        NOTE: does not function correctly, but useful as a reference for what Not to do
         '''
+        
         bitmask = np.full((self.bitdim,self.bitdim),np.NaN)
         for xx, yy in self.get_neighbors(x,y):
             xmask = xx - x + 1 # board to mask coordinates (x,y -> 1,1)
             ymask = yy - y + 1
-            maskidx = xmask + ymask * self.bitdim # get equivalent index in 1D bitmask (centre -> 4)
+            maskidx = xmask * self.bitdim + ymask # get equivalent index in 1D bitmask (centre -> 4)
 
             tset = self.tset[xx,yy]
             state = self.tile[xx,yy]
@@ -129,6 +158,7 @@ class Board:
         # update neighbors
         for xx, yy in self.get_neighbors(x,y):
             if self.mask[xx,yy] > 0 : self._apply_autotile(xx,yy,self.tset[xx,yy])
+
 
     def _apply_autotile(self, x : int, y : int, tset : int = NULLIDX) -> None:
         '''
@@ -188,10 +218,6 @@ class Board:
             return False
         return True
     
-    def print_states(self) -> None:
-         print(np.sum(self.states,2))
-
-
 
     def get_neighbors(self, x : int, y : int, inclusive : bool = False) -> np.ndarray:
         '''
@@ -205,3 +231,18 @@ class Board:
         y1 = y+2 if y < self.dim[1] -1 else y+1
         coords = [(xx,yy) for xx in range(x0,x1) for yy in range(y0,y1) if (xx != x or yy != y) or inclusive]
         return np.array(coords)
+    
+
+    def get_adjacent(self, x : int, y : int, inclusive : bool = False) -> np.ndarray:
+        '''
+        get neighbors bordering given tile on sides
+        Returns (n x 2) array of x, y coordinates
+        Inclusive: return reference / central tile
+        '''
+        coords = []
+        if x > 0 : coords.append((x-1,y))
+        if x < self.dim[0]-1 : coords.append((x+1,y))
+        if y > 0 : coords.append((x,y-1))
+        if y < self.dim[1]-1 : coords.append((x,y+1))
+        if inclusive : coords.append(x,y)
+        return np.asarray(coords)

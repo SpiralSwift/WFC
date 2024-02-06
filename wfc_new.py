@@ -31,7 +31,11 @@ if __name__ == "__main__":
 
     # --- TEST ---
     if False:
-        id = 0#34
+        tset = 0
+        board._set_tile(1,1,tset,0)
+        board.collapse_tile(1,2,tset)
+        board.collapse_tile(2,1,tset)
+        board.collapse_tile(2,2,tset)
 
         fig = plt.figure()
         im = plt.imshow((board.img).astype(np.uint8))
