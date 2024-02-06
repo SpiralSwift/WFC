@@ -62,5 +62,5 @@ if __name__ == "__main__":
     im = plt.imshow((board.img).astype(np.uint8))
 
     nframes = (boardDim[0]-buffer*2) * (boardDim[1]-buffer*2) -offset
-    anim = animation.FuncAnimation(fig, animate_autotile, frames=nframes, interval=20, fargs=(board,im,buffer,xy))
+    anim = animation.FuncAnimation(fig, animate_autotile, frames=nframes, interval=10, fargs=(board,im,buffer,xy))
     plt.show()

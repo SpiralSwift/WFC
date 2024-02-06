@@ -23,7 +23,7 @@ class Board:
 
         # initialize tile layers
         self.tile = np.ones(dim,dtype=int) * NULLIDX # indicates index of each tile in tileset
-        self.tsets = np.ones(dim,dtype=int) * NULLIDX # indicates which tileset each tile belongs to
+        self.tset = np.ones(dim,dtype=int) * NULLIDX # indicates which tileset each tile belongs to
         self.mask = np.zeros(dim,dtype=int) # indicates which mask each tile belongs to (0 -> empty)
         self.img = np.zeros((dim[0]*self.tiledim,dim[1]*self.tiledim,4)) # board image
 
@@ -43,7 +43,7 @@ class Board:
 
         # flag tile on board
         self.tile[x,y] = idx
-        self.tsets[x,y] = tset
+        self.tset[x,y] = tset
         self.mask[x,y] = tileset.mask
         
         # update image
@@ -60,7 +60,7 @@ class Board:
         '''
         # remove tile flags
         self.tile[x,y] = NULLIDX
-        self.tsets[x,y] = NULLIDX
+        self.tset[x,y] = NULLIDX
         self.mask[x,y] = 0
         
         # update image
@@ -71,11 +71,50 @@ class Board:
         self.img[x0:x1,y0:y1,:] = self.emptyTile
 
 
-    def collapse_tile(self, x : int, y : int, tset : int) -> None:
+    def collapse_tile(self, x : int, y : int, tset : int = 0) -> None:
         '''
         Use WFC to assign a tile based on its neighbors
+        NOTE: designed for use with a single tileset
         '''
-        pass
+        tileset = self.tilesets[tset]
+        
+        # determine required bitmask
+        bitmask = self._get_enforced_bitmask(x,y)
+        delta = np.abs(tileset.bitmasks - bitmask)
+        delta = np.nansum(delta,axis=1)
+
+        # get valid tile
+        print(bitmask)
+        minidx = np.where(delta == delta.min())[0] # list of all minima
+        if min(delta) > 0: # report imperfect matches
+            print(f'Imperfect match! Candidates: {bitmask}')
+            for i in minidx : print(f'   {tileset.bitmasks[i,:]} ({delta[i]})')
+
+        # choose a random tile
+        idx = np.random.choice(minidx)
+        self._set_tile(x,y,tset,idx)
+        
+
+
+    def _get_enforced_bitmask(self, x : int, y : int) -> np.ndarray:
+        '''
+        Get local bitmask based corresponding bits in bitmasks of neighbors (rather than their actual masks)
+        NaN -> no value enforced
+        '''
+        bitmask = np.full((self.bitdim,self.bitdim),np.NaN)
+        for xx, yy in self.get_neighbors(x,y):
+            xmask = xx - x + 1 # board to mask coordinates (x,y -> 1,1)
+            ymask = yy - y + 1
+            maskidx = xmask + ymask * self.bitdim # get equivalent index in 1D bitmask (centre -> 4)
+
+            tset = self.tset[xx,yy]
+            state = self.tile[xx,yy]
+            if tset > NULLIDX:
+                bm = self.tilesets[tset].bitmasks[state]
+                bitmask[xmask,ymask] = bm[self.nbits -1 - maskidx] # get opposite bit (NW neighbor -> SE bit)
+        bitmask = bitmask.reshape((bitmask.size,)) # convert to 1D
+        return bitmask
+    
 
     def autotile(self,  x : int, y : int, tset : int) -> None:
         '''
@@ -89,9 +128,9 @@ class Board:
 
         # update neighbors
         for xx, yy in self.get_neighbors(x,y):
-            if self.mask[xx,yy] > 0 : self._apply_autotile(xx,yy,self.tsets[xx,yy])
+            if self.mask[xx,yy] > 0 : self._apply_autotile(xx,yy,self.tset[xx,yy])
 
-    def _apply_autotile(self, x : int, y : int, tset : int = -1) -> None:
+    def _apply_autotile(self, x : int, y : int, tset : int = NULLIDX) -> None:
         '''
         determine set tile using autotiling
         NOTE: assumes valid coordinates
@@ -101,16 +140,8 @@ class Board:
         if tset > NULLIDX:
             tileset = self.tilesets[tset]
 
-            # get local masks
-            bitmask = np.zeros((self.bitdim,self.bitdim),dtype=int)
-            xboard, yboard =  self.get_neighbors(x,y).T
-            xmask = xboard - x + 1 # central tile -> [1,1]
-            ymask = yboard - y + 1
-            bitmask[xmask,ymask] = self.mask[xboard,yboard]
-            bitmask = bitmask.reshape((self.nbits,))
-            bitmask[bitmask != tileset.mask] = 0 # treat tiles with different mask as empty
-
-            # compare to tile bitmasks
+            # compare local mask to tile bitmasks
+            bitmask = self._get_local_bitmask(x,y,tileset.mask)
             delta = np.abs(tileset.bitmasks - bitmask)
             delta = np.sum(delta * self.weights, axis=1)
 
@@ -119,13 +150,33 @@ class Board:
             self._set_tile(x,y,tset,minidx)
 
             # check for mismatch behaviour
+            '''
             minidx = np.where(delta == delta.min())[0] # list of all minima
             if len(minidx) > 1: # report imperfect matches
-                print(f'Imperfect match! Candidates: {minidx}')
+                print(f'Imperfect match! Candidates: {bitmask}')
                 for i in minidx : print(f'   {tileset.bitmasks[i,:]}')
+            '''
         
         else:
             self._remove_tile(x,y)
+
+    
+    def _get_local_bitmask(self, x : int, y : int, mask : int = NULLIDX) -> np.ndarray:
+        '''
+        Get the 1D bitmask centered on the given point
+        x, y: coordinates
+        mask: mask to filter for (-1 -> no filter)
+        '''
+        xboard, yboard =  self.get_neighbors(x,y).T
+        xmask = xboard - x + 1 # central tile -> [1,1]
+        ymask = yboard - y + 1
+
+        bitmask = np.zeros((self.bitdim,self.bitdim),dtype=int)
+        bitmask[xmask,ymask] = self.mask[xboard,yboard] # copy masks for valid tile position from board
+        bitmask = bitmask.reshape((self.nbits,)) # convert to 1D
+
+        if mask > NULLIDX : bitmask[bitmask != mask] = 0 # treat tiles with different mask as empty
+        return bitmask
 
 
     def check_in_bounds(self, x : int, y : int) -> bool:

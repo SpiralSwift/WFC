@@ -2,11 +2,21 @@ import numpy as np
 import imageio.v3 as iio
 import matplotlib.pyplot as plt
 from matplotlib import animation
-import tile
+
+
+class Tile:
+    def __init__(self, img : np.ndarray, bitTile : np.ndarray, name : str, tset : int) -> None:
+        self.img = img
+        self.bitTile = bitTile
+        self.name = name
+        self.tileset = tset
+
+        self.bitmask = create_bitmask(bitTile,len(bitTile))
+        self.mask = self.bitmask[4] # "native" mask layer
 
 
 class Board:
-    def __init__(self, dim : list[int], tiles : list[tile.Tile], nullidx : int = 0, noneidx = -1) -> None:
+    def __init__(self, dim : list[int], tiles : list[Tile], nullidx : int = 0, noneidx = -1) -> None:
         self.dim = dim
         self.tiles = tiles
 
@@ -104,7 +114,7 @@ class Board:
         
         # update state space based on states of neighbors
         newstates = self.states[x,y,:]
-        coords = tile.get_neighbor_coords(x,y,self.dim)
+        coords = get_neighbor_coords(x,y,self.dim)
         for pos in coords:
             xx = pos[0] # position of neighbor
             yy = pos[1]
@@ -131,7 +141,7 @@ class Board:
         """
         Update states of neighbors
         """
-        coords = tile.get_neighbor_coords(x,y,self.dim)
+        coords = get_neighbor_coords(x,y,self.dim)
         for pos in coords:
             xx = pos[0] # position of neighbor
             yy = pos[1]
@@ -154,6 +164,69 @@ class Board:
          print(np.sum(self.states,2))
 
 
+def extract_tile(x : int, y : int, source : np.ndarray, dim : int) -> np.ndarray:
+    '''
+    slices out tile at coordinates from tileset
+    '''
+    x0 = x * dim
+    x1 = x0 + dim
+    y0 = y * dim
+    y1 = y0 + dim
+    return np.asarray(source[x0:x1,y0:y1,:])
+
+
+def create_bitmask(tile : np.ndarray, dim : int) -> np.ndarray:
+    '''
+    Interpret bitmap data to create bitmask
+    uses RGB channels separately
+    '''
+    mask = np.zeros((dim,dim),dtype=int)
+    # check each pixel in tile
+    for x in range(dim):
+        for y in range(dim):
+            # check if any color channel nonzero &assign using first one; ignore alpha channel
+            for i in range(3):
+                if tile[x,y,i] > 0:
+                    mask[x,y] = i+1
+                    break
+    mask = mask.reshape((mask.size,))
+
+    #print(np.sum(tile,2))
+    #print(mask)
+    return mask
+
+
+def get_neighbor_coords(x : int, y : int, dim : list[int]) -> np.ndarray:
+    '''
+    legacy version of get_autotile_neighbors()
+    '''
+    coords = []
+    if x > 0 : coords.append([x-1,y,-1,0])
+    if x < dim[0]-1 : coords.append([x+1,y,1,0])
+    if y > 0 : coords.append([x,y-1,0,-1])
+    if y < dim[1]-1 : coords.append([x,y+1,0,1])
+    return np.asarray(coords)
+
+
+def create_tiles(bitmap : np.ndarray, bitdim : int, tileset : np.ndarray, tiledim : int, tset : int = 0) -> list[Tile]:
+        # get dimensions of tileset / bitmap in tiles
+        dimx = int(bitmap.shape[0] / bitdim)
+        dimy = int(bitmap.shape[1] / bitdim)
+
+        # create tiles
+        tiles = []
+        for x in range(dimx):
+            for y in range(dimy):
+                bitTile = extract_tile(x,y,bitmap,bitdim)[:,:,:3] # slice out alpha values
+                if np.sum(bitTile) > 0: # check if blank space
+                    imgTile = extract_tile(x,y,tileset,tiledim)
+                    name = str(x)+'|'+str(y)
+                    tile = Tile(imgTile, bitTile, name, tset)
+                    tiles.append(tile)
+
+        return tiles
+
+
 if __name__ == "__main__":
     # --- PARAMETERS ---
     tilesetPath = 'cliffs.png'
@@ -173,7 +246,7 @@ if __name__ == "__main__":
     tileset = np.asarray(iio.imread(tilesetPath),dtype=int)
 
     # initialize tiles & board
-    tiles = tile.create_tiles(bitmap, bitDim, tileset, tileDim)
+    tiles = create_tiles(bitmap, bitDim, tileset, tileDim)
     board = Board(boardDim, tiles)
 
 
